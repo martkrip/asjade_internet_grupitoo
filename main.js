@@ -39,12 +39,18 @@ const BLINK_MS = 500;
 let phaseIndex = 0;
 let phaseEndsAt = 0;
 
-let lastPublishedPhase = -1;
+let isNight = false;        // öörežiim: autodele vilkuv kollane, jalakäijate tuled väljas
+let pedestrianWaiting = false; // keegi vajutas "Lase jalakäija läbi" ajal, kui autodel polnud rohelist
+
+let lastPublishedKey = "";
 let lastPublishAt = 0;
 const inFlight = new Set();
 
 // Praegune olek kõigi nelja signaali jaoks.
 function currentState() {
+  if (isNight) {
+    return { A1: "blinkingyellow", A7: "blinkingyellow", J1: "off", J6: "off" };
+  }
   const phase = PHASES[phaseIndex];
   return {
     A1: phase.car,
@@ -57,17 +63,93 @@ function currentState() {
 function start() {
   phaseIndex = 0;
   phaseEndsAt = performance.now() + PHASES[0].duration;
+
+  document.getElementById("greenTimeBtn").addEventListener("click", changeGreenTime);
+  document.getElementById("nightToggle").addEventListener("change", (e) => setNight(e.target.checked));
+  document.getElementById("pedestrianBtn").addEventListener("click", letPedestrianThrough);
+
   setInterval(tick, TICK_MS);
   tick();
+}
+
+// Jäta faas vahele: alusta antud faasist kohe.
+function jumpToPhase(index) {
+  phaseIndex = index;
+  phaseEndsAt = performance.now() + PHASES[index].duration;
+}
+
+function showHint(text) {
+  document.getElementById("hint").textContent = text;
+}
+
+// ---------- Nupud ----------
+
+// Autode ja jalakäijate rohelise pikkus (faasid "Autod sõidavad" ja "Jalakäijad lähevad").
+function changeGreenTime() {
+  const seconds = parseInt(document.getElementById("greenTime").value, 10);
+  if (!Number.isFinite(seconds) || seconds < 5 || seconds > 120) {
+    showHint("Rohelise aeg peab olema 5–120 sekundit.");
+    return;
+  }
+  const ms = seconds * 1000;
+  for (const phase of PHASES) {
+    if (phase.car === "green" || phase.person === "green") phase.duration = ms;
+  }
+  showHint(`Rohelise aeg on nüüd ${seconds} s (kehtib järgmisest rohelisest).`);
+}
+
+function setNight(on) {
+  isNight = on;
+  document.getElementById("pedestrianBtn").disabled = on;
+  if (on) {
+    showHint("Öörežiim: autodele vilkuv kollane, jalakäijate foorid väljas.");
+  } else {
+    // Ohutu tagasitulek: kõik punased -> punane+kollane -> roheline.
+    jumpToPhase(6);
+    showHint("Tavarežiim taastatud.");
+  }
+}
+
+// Nõudenupp: kui autodel on parasjagu roheline, lõpeta see kohe ja lase jalakäijad läbi.
+function letPedestrianThrough() {
+  if (isNight) return;
+  if (phaseIndex === 0) {
+    jumpToPhase(1);
+    showHint("Jalakäija nõue vastu võetud – autode roheline lõpeb.");
+  } else if (phaseIndex >= 1 && phaseIndex <= 3) {
+    showHint("Jalakäijad saavad varsti rohelise.");
+  } else if (phaseIndex === 4 || phaseIndex === 5) {
+    showHint("Jalakäijatel on juba roheline.");
+  } else {
+    showHint("Jalakäija nõue vastu võetud – autode roheline jääb lühikeseks.");
+    pedestrianWaiting = true;
+  }
+}
+
+// Kui jalakäija ootab, on järgmine autode roheline lühike.
+const SHORT_GREEN_MS = 5000;
+
+function phaseDuration(index) {
+  if (index === 0 && pedestrianWaiting) {
+    pedestrianWaiting = false;
+    return SHORT_GREEN_MS;
+  }
+  return PHASES[index].duration;
 }
 
 function tick() {
   const now = performance.now();
 
+  if (isNight) {
+    render(now);
+    publish(now);
+    return;
+  }
+
   // Liigu järgmisse faasi (while juhuks, kui vahekaart oli taustal ja aega läks rohkem).
   while (now >= phaseEndsAt) {
     phaseIndex = (phaseIndex + 1) % PHASES.length;
-    phaseEndsAt += PHASES[phaseIndex].duration;
+    phaseEndsAt += phaseDuration(phaseIndex);
   }
 
   render(now);
@@ -83,8 +165,9 @@ function litLamps(state, blinkOn) {
     case "yellow":        return ["yellow"];
     case "redyellow":     return ["red", "yellow"];
     case "green":         return ["green"];
-    case "blinkinggreen": return blinkOn ? ["green"] : [];
-    default:              return [];
+    case "blinkinggreen":  return blinkOn ? ["green"] : [];
+    case "blinkingyellow": return blinkOn ? ["yellow"] : [];
+    default:               return []; // "off"
   }
 }
 
@@ -102,6 +185,11 @@ function render(now) {
     el.querySelector(".state").textContent = value;
   }
 
+  if (isNight) {
+    document.getElementById("phaseName").textContent = "Öörežiim";
+    document.getElementById("timeLeft").textContent = "–";
+    return;
+  }
   const remaining = Math.max(0, phaseEndsAt - now);
   document.getElementById("phaseName").textContent = PHASES[phaseIndex].name;
   document.getElementById("timeLeft").textContent = (remaining / 1000).toFixed(1) + " s";
@@ -110,13 +198,13 @@ function render(now) {
 // ---------- Oleku saatmine füüsilistele fooridele (ESP8266, sama WiFi) ----------
 
 function publish(now) {
-  // Saada faasi vahetusel kohe + iga HEARTBEAT_MS järel, et ESP teaks, et leht töötab.
-  if (phaseIndex === lastPublishedPhase && now - lastPublishAt < HEARTBEAT_MS) return;
+  // Saada oleku muutusel kohe + iga HEARTBEAT_MS järel, et ESP teaks, et leht töötab.
+  const query = new URLSearchParams(currentState()).toString();
+  if (query === lastPublishedKey && now - lastPublishAt < HEARTBEAT_MS) return;
 
-  lastPublishedPhase = phaseIndex;
+  lastPublishedKey = query;
   lastPublishAt = now;
 
-  const query = new URLSearchParams(currentState()).toString();
   for (const host of DEVICES) {
     sendTo(host, query);
   }
