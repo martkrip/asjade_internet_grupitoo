@@ -8,9 +8,16 @@
 // Tulede väärtused:
 //   autod:      "green" | "blinkinggreen" | "yellow" | "red" | "redyellow"
 //   jalakäijad: "green" | "blinkinggreen" | "red"
+//
+// Füüsilised foorid (ESP8266) on samas WiFi võrgus ja leht saadab neile oleku otse:
+//   GET http://<seade>/state?A1=green&A7=green&J1=red&J6=red
 
-const SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbwPbwky8fri2VPIsEYw0bgAAe7TtB1lyMY-N1u5RFLSS5KZdjkepiVNle3eKyESg-hP/exec";
+// Füüsiliste fooride aadressid. Nimi (mDNS) või IP, mille ESP Serial Monitori prindib.
+const DEVICES = [
+  "valgusfoor-a1.local",
+  // "valgusfoor-a7.local",
+  // "192.168.1.50",
+];
 
 // Faasid järjekorras. duration on millisekundites.
 const PHASES = [
@@ -25,7 +32,8 @@ const PHASES = [
 ];
 
 const TICK_MS = 100;
-const HEARTBEAT_MS = 10000;
+const HEARTBEAT_MS = 2000;     // ESP läheb vilkuvale kollasele, kui 5 s jooksul olekut ei tule
+const SEND_TIMEOUT_MS = 1500;
 const BLINK_MS = 500;
 
 let phaseIndex = 0;
@@ -33,8 +41,7 @@ let phaseEndsAt = 0;
 
 let lastPublishedPhase = -1;
 let lastPublishAt = 0;
-let sendInFlight = false;
-let queuedUrl = null;
+const inFlight = new Set();
 
 // Praegune olek kõigi nelja signaali jaoks.
 function currentState() {
@@ -100,40 +107,35 @@ function render(now) {
   document.getElementById("timeLeft").textContent = (remaining / 1000).toFixed(1) + " s";
 }
 
-// ---------- Oleku saatmine Google Apps Scriptile (füüsiline foor loeb sealt) ----------
+// ---------- Oleku saatmine füüsilistele fooridele (ESP8266, sama WiFi) ----------
 
 function publish(now) {
-  // Saada ainult faasi vahetusel + iga HEARTBEAT_MS järel.
+  // Saada faasi vahetusel kohe + iga HEARTBEAT_MS järel, et ESP teaks, et leht töötab.
   if (phaseIndex === lastPublishedPhase && now - lastPublishAt < HEARTBEAT_MS) return;
 
   lastPublishedPhase = phaseIndex;
   lastPublishAt = now;
 
-  const state = currentState();
-  const params = new URLSearchParams({
-    ...state,
-    // Vanad väljad, et olemasolev Apps Script / ESP8266 kood töötaks edasi.
-    currentCarLight: state.A1,
-    currentPersonLight: state.J1,
-    timeLeft: String(Math.round(phaseEndsAt - now)),
-  });
-
-  queuedUrl = `${SCRIPT_URL}?${params.toString()}`;
-  drain();
+  const query = new URLSearchParams(currentState()).toString();
+  for (const host of DEVICES) {
+    sendTo(host, query);
+  }
 }
 
-async function drain() {
-  if (sendInFlight || !queuedUrl) return;
-  const url = queuedUrl;
-  queuedUrl = null;
-  sendInFlight = true;
+async function sendTo(host, query) {
+  // Kui eelmine päring samale seadmele veel käib, jäta vahele (järgmine heartbeat saadab uuesti).
+  if (inFlight.has(host)) return;
+  inFlight.add(host);
   try {
-    await fetch(url, { cache: "no-store", mode: "no-cors" });
+    await fetch(`http://${host}/state?${query}`, {
+      mode: "no-cors",
+      cache: "no-store",
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
   } catch (err) {
-    console.warn("Oleku saatmine ebaõnnestus:", err);
+    console.warn(`Foor ${host} ei vasta:`, err.message);
   } finally {
-    sendInFlight = false;
-    if (queuedUrl) drain();
+    inFlight.delete(host);
   }
 }
 
