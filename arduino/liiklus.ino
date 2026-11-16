@@ -1,15 +1,16 @@
 // Kreutzwaldi tänava valgusfoor — füüsiline foor (ESP8266)
 //
-// Loeb Google Apps Scriptist praeguse oleku ja näitab seda LED-idel.
+// ESP on väike veebiserver samas WiFi võrgus. Leht (liiklus.html + main.js) saadab talle oleku:
+//   GET http://valgusfoor-a1.local/state?A1=green&A7=green&J1=red&J6=red
+// ESP võtab sealt enda signaalid (CAR_SIGNAL, PERSON_SIGNAL) ja paneb LED-id põlema.
+// Kui 5 s jooksul olekut ei tule (leht kinni / võrk maas), vilgub autodele kollane.
+//
 // Üks plaat = üks autofoor (A1 või A7) + üks jalakäijate foor (J1 või J6).
-// Vali allpool CAR_SIGNAL ja PERSON_SIGNAL vastavalt sellele, millist foori see plaat näitab.
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-#include <ESP8266HTTPClient.h>
-#include <WiFiClientSecureBearSSL.h>
-#include <ArduinoJson.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
 
 #define carRed D0
 #define carYellow D1
@@ -17,29 +18,30 @@
 #define personRed D3
 #define personGreen D4
 
+// WiFi, kus on ka arvuti, millel leht lahti on (nt telefoni hotspot).
 #ifndef STASSID
 #define STASSID "TLU"
 #define STAPSK ""
 #endif
 
-// Millist signaali see plaat näitab: "A1" või "A7", "J1" või "J6".
+// Millist foori see plaat näitab. Teise plaadi jaoks: "A7", "J6", "valgusfoor-a7".
 const char* CAR_SIGNAL = "A1";
 const char* PERSON_SIGNAL = "J1";
+const char* HOSTNAME = "valgusfoor-a1";   // -> http://valgusfoor-a1.local
 
-String url = "https://script.google.com/macros/s/AKfycbwPbwky8fri2VPIsEYw0bgAAe7TtB1lyMY-N1u5RFLSS5KZdjkepiVNle3eKyESg-hP/exec";
+const unsigned long TIMEOUT_MS = 5000;
+const unsigned long blinkInterval = 500;
 
-ESP8266WiFiMulti WiFiMulti;
+ESP8266WebServer server(80);
 
 String carLight = "";
 String personLight = "";
+unsigned long lastUpdate = 0;
+bool gotUpdate = false;
 
-const unsigned long fetchInterval = 1000;
-const unsigned long blinkInterval = 500;
-unsigned long lastFetch = 0;
-
-void allLedsOff();
-void fetchTrafficState();
+void handleState();
 void updateTrafficLeds();
+void allLedsOff();
 
 void setup() {
   pinMode(carRed, OUTPUT);
@@ -47,83 +49,72 @@ void setup() {
   pinMode(carGreen, OUTPUT);
   pinMode(personRed, OUTPUT);
   pinMode(personGreen, OUTPUT);
-
   allLedsOff();
 
   Serial.begin(115200);
   Serial.println();
-  Serial.println("Starting traffic light client");
+  Serial.println("Starting traffic light server");
 
   WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP(STASSID, STAPSK);
+  WiFi.hostname(HOSTNAME);
+  WiFi.begin(STASSID, STAPSK);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
 
-  Serial.println("Connecting to WiFi...");
+  if (MDNS.begin(HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.printf("Name: http://%s.local\n", HOSTNAME);
+  }
+
+  server.on("/state", handleState);
+  server.begin();
 }
 
 void loop() {
-  if (millis() - lastFetch >= fetchInterval) {
-    lastFetch = millis();
-
-    if (WiFiMulti.run() == WL_CONNECTED) {
-      fetchTrafficState();
-    } else {
-      Serial.println("WiFi not connected");
-    }
-  }
+  server.handleClient();
+  MDNS.update();
   updateTrafficLeds();
-  yield();
 }
 
-void fetchTrafficState() {
-  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
-  client->setInsecure();
+// GET /state?A1=green&A7=green&J1=red&J6=red
+void handleState() {
+  if (server.hasArg(CAR_SIGNAL)) carLight = server.arg(CAR_SIGNAL);
+  if (server.hasArg(PERSON_SIGNAL)) personLight = server.arg(PERSON_SIGNAL);
+  lastUpdate = millis();
+  gotUpdate = true;
 
-  HTTPClient https;
-  https.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  Serial.printf("%s: %s, %s: %s\n", CAR_SIGNAL, carLight.c_str(), PERSON_SIGNAL, personLight.c_str());
 
-  if (!https.begin(*client, url)) {
-    Serial.println("[HTTPS] Unable to connect");
-    return;
-  }
-
-  int httpCode = https.GET();
-
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = https.getString();
-
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, payload);
-
-    if (!error) {
-      // Uued väljad (A1/A7/J1/J6); kui Apps Script neid veel ei salvesta, kasuta vanu.
-      carLight = doc[CAR_SIGNAL] | (doc["currentCarLight"] | "");
-      personLight = doc[PERSON_SIGNAL] | (doc["currentPersonLight"] | "");
-
-      Serial.printf("%s: %s, %s: %s\n", CAR_SIGNAL, carLight.c_str(), PERSON_SIGNAL, personLight.c_str());
-    } else {
-      Serial.print("[JSON] Parse error: ");
-      Serial.println(error.c_str());
-    }
-  } else if (httpCode > 0) {
-    Serial.printf("[HTTPS] Unexpected status code: %d\n", httpCode);
-  } else {
-    Serial.printf("[HTTPS] GET failed: %s\n", https.errorToString(httpCode).c_str());
-  }
-
-  https.end();
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", "OK");
 }
 
 void updateTrafficLeds() {
   bool blinkOn = ((millis() / blinkInterval) % 2) == 0;
 
-  // Autod: red, redyellow, yellow, green, blinkinggreen
-  digitalWrite(carRed,    carLight == "red" || carLight == "redyellow");
-  digitalWrite(carYellow, carLight == "yellow" || carLight == "redyellow");
-  digitalWrite(carGreen,  carLight == "green" || (carLight == "blinkinggreen" && blinkOn));
+  String car = carLight;
+  String person = personLight;
+
+  // Turvarežiim: lehelt pole ammu midagi tulnud -> autodele vilkuv kollane, jalakäijad väljas.
+  if (!gotUpdate || millis() - lastUpdate > TIMEOUT_MS) {
+    car = "blinkingyellow";
+    person = "";
+  }
+
+  // Autod: red, redyellow, yellow, green, blinkinggreen, blinkingyellow
+  digitalWrite(carRed,    car == "red" || car == "redyellow");
+  digitalWrite(carYellow, car == "yellow" || car == "redyellow" || (car == "blinkingyellow" && blinkOn));
+  digitalWrite(carGreen,  car == "green" || (car == "blinkinggreen" && blinkOn));
 
   // Jalakäijad: red, green, blinkinggreen
-  digitalWrite(personRed,   personLight == "red");
-  digitalWrite(personGreen, personLight == "green" || (personLight == "blinkinggreen" && blinkOn));
+  digitalWrite(personRed,   person == "red");
+  digitalWrite(personGreen, person == "green" || (person == "blinkinggreen" && blinkOn));
 }
 
 void allLedsOff() {
