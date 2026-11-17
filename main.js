@@ -49,12 +49,14 @@ const inFlight = new Set();
 // Praegune olek kõigi nelja signaali jaoks.
 function currentState() {
   if (isNight) {
-    return { A1: "blinkingyellow", A7: "blinkingyellow", J1: "off", J6: "off" };
+    return { A1: "blinkingyellow", A3: "blinkingyellow", A6: "blinkingyellow", A7: "blinkingyellow", J1: "off", J6: "off" };
   }
   const phase = PHASES[phaseIndex];
   return {
     A1: phase.car,
     A7: phase.car,
+    A3: phase.car,
+    A6: phase.car,
     J1: phase.person,
     J6: phase.person,
   };
