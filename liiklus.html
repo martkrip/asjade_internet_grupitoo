@@ -1,140 +1,185 @@
-    <!DOCTYPE html>
-    <html lang="et">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Kreutzwaldi tänava valgusfoor</title>
-        <style>
-            body {
-                font-family: system-ui, sans-serif;
-                background: #f2f2f2;
-                margin: 0;
-                padding: 16px;
-                text-align: center;
-            }
-            .status { margin-bottom: 24px; font-size: 18px; }
-            .lights {
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 24px;
-            }
-            .signal { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-            .housing {
-                background: #222;
-                border-radius: 12px;
-                padding: 10px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }
-            .lamp {
-                width: 48px;
-                height: 48px;
-                border-radius: 50%;
-                opacity: 0.15;
-            }
-            .lamp.on { opacity: 1; box-shadow: 0 0 16px currentColor; }
-            .lamp[data-color="red"]    { background: #e53935; color: #e53935; }
-            .lamp[data-color="yellow"] { background: #fdd835; color: #fdd835; }
-            .lamp[data-color="green"]  { background: #43a047; color: #43a047; }
-            .label { font-weight: bold; }
-            .state { font-size: 13px; color: #555; }
-            .controls {
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                align-items: center;
-                gap: 12px 20px;
-                margin-bottom: 28px;
-            }
-            .controls input[type="number"] { width: 90px; padding: 6px; font-size: 15px; }
-            .controls button { padding: 7px 14px; font-size: 15px; cursor: pointer; }
-            .controls label { font-size: 15px; }
-            .hint { min-height: 1.2em; font-size: 14px; color: #2e7d32; margin: -16px 0 20px; }
-        </style>
-        <script src="main.js" defer></script>
-    </head>
-    <body>
-        <h1>Kreutzwaldi tänava valgusfoor</h1>
+<!doctype html>
+<html lang="et">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kreutzwaldi tänava valgusfoor</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #f2f2f2;
+        margin: 0;
+        padding: 16px;
+        text-align: center;
+      }
+      .status {
+        margin-bottom: 24px;
+        font-size: 18px;
+      }
+      .lights {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 24px;
+      }
+      .signal {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .housing {
+        background: #222;
+        border-radius: 12px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .lamp {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        opacity: 0.15;
+      }
+      .lamp.on {
+        opacity: 1;
+        box-shadow: 0 0 16px currentColor;
+      }
+      .lamp[data-color="red"] {
+        background: #e53935;
+        color: #e53935;
+      }
+      .lamp[data-color="yellow"] {
+        background: #fdd835;
+        color: #fdd835;
+      }
+      .lamp[data-color="green"] {
+        background: #43a047;
+        color: #43a047;
+      }
+      .label {
+        font-weight: bold;
+      }
+      .state {
+        font-size: 13px;
+        color: #555;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 12px 20px;
+        margin-bottom: 28px;
+      }
+      .controls input[type="number"] {
+        width: 90px;
+        padding: 6px;
+        font-size: 15px;
+      }
+      .controls button {
+        padding: 7px 14px;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .controls label {
+        font-size: 15px;
+      }
+      .hint {
+        min-height: 1.2em;
+        font-size: 14px;
+        color: #2e7d32;
+        margin: -16px 0 20px;
+      }
+    </style>
+    <img
+      src="Liiklusprojekt_tanav.png"
+      alt="Picture of the street"
+      style="width: 1000px; height: 500px"
+    />
+    <script src="main.js" defer></script>
+  </head>
+  <body>
+    <h1>Kreutzwaldi tänava valgusfoor</h1>
 
-        <div class="status">
-            Faas: <strong id="phaseName">-</strong> ·
-            Aega jäänud: <strong id="timeLeft">-</strong>
+    <div class="status">
+      Faas: <strong id="phaseName">-</strong> · Aega jäänud:
+      <strong id="timeLeft">-</strong>
+    </div>
+
+    <div class="controls">
+      <span>
+        <label for="greenTime">Rohelise aeg (s)</label>
+        <input type="number" id="greenTime" min="5" max="120" value="15" />
+        <button type="button" id="greenTimeBtn">Muuda</button>
+      </span>
+      <label>
+        <input type="checkbox" id="nightToggle" />
+        Öörežiim (vilkuv kollane)
+      </label>
+      <button type="button" id="pedestrianBtn">Lase jalakäija läbi</button>
+    </div>
+    <p class="hint" id="hint"></p>
+
+    <div class="lights">
+      <div class="signal" id="A1">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="yellow"></div>
+          <div class="lamp" data-color="green"></div>
         </div>
+        <span class="label">A1 (auto)</span>
+        <span class="state"></span>
+      </div>
 
-        <div class="controls">
-            <span>
-                <label for="greenTime">Rohelise aeg (s)</label>
-                <input type="number" id="greenTime" min="5" max="120" value="15" />
-                <button type="button" id="greenTimeBtn">Muuda</button>
-            </span>
-            <label>
-                <input type="checkbox" id="nightToggle" />
-                Öörežiim (vilkuv kollane)
-            </label>
-            <button type="button" id="pedestrianBtn">Lase jalakäija läbi</button>
+      <div class="signal" id="A7">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="yellow"></div>
+          <div class="lamp" data-color="green"></div>
         </div>
-        <p class="hint" id="hint"></p>
+        <span class="label">A7 (auto)</span>
+        <span class="state"></span>
+      </div>
 
-        <div class="lights">
-            <div class="signal" id="A1">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="yellow"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">A1 (auto)</span>
-                <span class="state"></span>
-            </div>
-
-            <div class="signal" id="A7">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="yellow"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">A7 (auto)</span>
-                <span class="state"></span>
-            </div>
-
-            <div class="signal" id="A3">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="yellow"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">A3 (auto)</span>
-                <span class="state"></span>
-            </div>
-
-            <div class="signal" id="A6">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="yellow"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">A6 (auto)</span>
-                <span class="state"></span>
-            </div>        
-
-            <div class="signal" id="J1">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">J1 (jalakäija)</span>
-                <span class="state"></span>
-            </div>
-
-            <div class="signal" id="J6">
-                <div class="housing">
-                    <div class="lamp" data-color="red"></div>
-                    <div class="lamp" data-color="green"></div>
-                </div>
-                <span class="label">J6 (jalakäija)</span>
-                <span class="state"></span>
-            </div>
+      <div class="signal" id="A3">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="yellow"></div>
+          <div class="lamp" data-color="green"></div>
         </div>
-    </body>
-    </html>
+        <span class="label">A3 (auto)</span>
+        <span class="state"></span>
+      </div>
+
+      <div class="signal" id="A6">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="yellow"></div>
+          <div class="lamp" data-color="green"></div>
+        </div>
+        <span class="label">A6 (auto)</span>
+        <span class="state"></span>
+      </div>
+
+      <div class="signal" id="J1">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="green"></div>
+        </div>
+        <span class="label">J1 (jalakäija)</span>
+        <span class="state"></span>
+      </div>
+
+      <div class="signal" id="J6">
+        <div class="housing">
+          <div class="lamp" data-color="red"></div>
+          <div class="lamp" data-color="green"></div>
+        </div>
+        <span class="label">J6 (jalakäija)</span>
+        <span class="state"></span>
+      </div>
+    </div>
+  </body>
+</html>
